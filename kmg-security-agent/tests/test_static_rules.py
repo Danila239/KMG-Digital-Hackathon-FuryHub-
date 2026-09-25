@@ -211,6 +211,19 @@ class HtmlReportTests(unittest.TestCase):
         self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;', page)
         self.assertNotRegex(page, r'(src|href)="https?://')
 
+    def test_evidence_links_to_github_lines_only_for_https_base(self):
+        from kmg_security_agent import html_report
+        report = {'result': 'violations_found', 'exit_code': 1, 'finding_count': 1, 'violated_requirement_ids': ['ИБ-01'],
+                  'timing': {}, 'target': {}, 'usage': {}, 'errors': [], 'limitations': [],
+                  'requirements': [{'requirement_id': 'ИБ-01', 'title': 't', 'status': 'violated'}],
+                  'findings': [{'requirement_id': 'ИБ-01', 'title': 'x', 'severity': 'high', 'explanation': 'e', 'recommendation': 'r',
+                                'evidence': [{'path': 'portal/access.py', 'start_line': 22, 'end_line': 22, 'quote': 'q'}]}]}
+        base = 'https://github.com/o/r/blob/' + 'a' * 40 + '/'
+        page = html_report.render(dict(report, metadata={'source_link_base': base}))
+        self.assertIn(base + 'portal/access.py#L22', page)
+        page = html_report.render(dict(report, metadata={'source_link_base': 'javascript:alert(1)//'}))
+        self.assertNotIn('javascript:', page)
+
 
 class CombineTests(unittest.TestCase):
     def test_llm_findings_are_merged_without_duplicates(self):

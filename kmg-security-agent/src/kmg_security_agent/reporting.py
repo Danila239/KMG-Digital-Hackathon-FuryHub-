@@ -153,7 +153,7 @@ SEVERITY_RU = {'critical': 'критическая', 'high': 'высокая', '
 METHOD_RU = {'static_rule': 'детерминированное правило', 'llm': 'LLM-анализ'}
 
 
-def _evidence_md(evidence: dict) -> list:
+def _evidence_md(evidence: dict, base: str | None = None) -> list:
     start, end = evidence['start_line'], evidence['end_line']
     single = start == end
     if evidence.get('location_kind') == 'extracted_document_lines':
@@ -161,12 +161,17 @@ def _evidence_md(evidence: dict) -> list:
     else:
         unit = 'строка' if single else 'строки'
     where = f"{start}" if single else f"{start}–{end}"
-    return [f"`{_md_cell(evidence['path'])}`, {unit} {where}:", "", _code_block(evidence["quote"]), ""]
+    head = f"`{_md_cell(evidence['path'])}`, {unit} {where}"
+    if base:
+        from .html_report import _link
+        head = f"[{head}]({_link(base, evidence)})"
+    return [head + ":", "", _code_block(evidence["quote"]), ""]
 
 
 def _markdown(report: dict) -> str:
     diagnostic = report["report_type"] == "run_diagnostics"
     timing = report["timing"]
+    base = report["metadata"].get("source_link_base") if str(report["metadata"].get("source_link_base") or "").startswith("https://") else None
     lines = ["# Отчёт проверки требований ИБ" + (" — диагностика незавершённого запуска" if diagnostic else ""), ""]
     if diagnostic:
         lines += ["Сбой внешнего сервиса не позволил завершить проверку. Это не заключение о соответствии.", ""]
@@ -208,7 +213,7 @@ def _markdown(report: dict) -> str:
             "**Доказательства:**", "",
         ]
         for evidence in finding["evidence"]:
-            lines += _evidence_md(evidence)
+            lines += _evidence_md(evidence, base)
     lines += ["## Прочие дефекты (несоответствия технической спецификации, не блокируют пайплайн)", ""]
     extra = report.get('additional_findings', [])
     if not extra:
@@ -219,7 +224,7 @@ def _markdown(report: dict) -> str:
                   f"- **Критичность:** {SEVERITY_RU.get(item.get('severity'), item.get('severity'))}", "",
                   _md_text(item['explanation']), "", f"**Рекомендация.** {_md_text(item['recommendation'])}", ""]
         for evidence in item['evidence']:
-            lines += _evidence_md(evidence)
+            lines += _evidence_md(evidence, base)
     for key, heading in (("additional_observations", "Прочие наблюдения"), ("errors", "Ошибки"), ("limitations", "Ограничения проверки")):
         if report.get(key):
             lines += [f"## {heading}", ""]

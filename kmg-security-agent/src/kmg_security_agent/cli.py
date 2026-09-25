@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 import json
 import os
 from contextlib import nullcontext
+import re
+import subprocess
 from pathlib import Path
 import sys
 import time
@@ -79,6 +81,29 @@ def _summary(report, output):
     print('\n'.join(lines), file=sys.stderr, flush=True)
 
 
+def _source_link_base(repo, target):
+    """https://github.com/<owner>/<repo>/blob/<commit>/<subpath>/ for clickable evidence, or None."""
+    commit = target.get('commit') or ''
+    if not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', commit):
+        return None
+    server, slug = os.environ.get('GITHUB_SERVER_URL'), os.environ.get('GITHUB_REPOSITORY')
+    if not (server and slug):
+        try:
+            url = subprocess.run(['git', '-C', str(repo), 'remote', 'get-url', 'origin'], capture_output=True,
+                                 text=True, timeout=5, env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'}).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return None
+        match = re.fullmatch(r'(?:https://github\.com/|git@github\.com:)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?', url)
+        if not match:
+            return None
+        server, slug = 'https://github.com', match.group(1)
+    if not re.fullmatch(r'https://[A-Za-z0-9.-]+', server) or not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', slug):
+        return None
+    sub = (target.get('target_subpath') or '').strip('/')
+    prefix = '' if sub in ('', '.') else sub + '/'
+    return f'{server}/{slug}/blob/{commit}/{prefix}'
+
+
 def _run_scan(args, config, redactor, config_error=None):
     from . import inventory, analysis, reporting
     repo = args.repo.expanduser().resolve()
@@ -152,6 +177,7 @@ def _run_scan(args, config, redactor, config_error=None):
             record['analysis_status'] = ('empty_source' if not ids and record.get('line_count') == 0 else 'completed' if ids and ids <= completed
                                          else 'partial' if ids & completed else 'static_rules_only' if static_result else 'not_reviewed')
     base_meta['excluded_paths'] = data['excluded_paths']
+    base_meta['source_link_base'] = _source_link_base(repo, data['target'])
     metadata = dict(base_meta, finished_at=_now(), duration_seconds=round(time.monotonic()-started, 3), target=data['target'],
                     coverage={'files_read': len(data['documents']), 'chunks': len(data['chunks']),
                               'llm_chunks_reviewed': len(completed), 'llm_error': llm_error},

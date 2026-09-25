@@ -33,7 +33,7 @@ border-radius:99px;padding:5px 12px;cursor:pointer;font:inherit;font-size:13px}.
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:0 0 14px}
 .card h3{margin:0 0 8px;font-size:16px}.meta{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px;font-size:13px;color:var(--muted)}
 .sev-critical,.sev-high{background:var(--bad-bg);color:var(--bad)}.sev-medium{background:var(--warn-bg);color:var(--warn)}.sev-low{background:var(--code);color:var(--muted)}
-.label{font-weight:600}.loc{font:13px ui-monospace,Consolas,monospace;color:var(--muted);margin:10px 0 4px}
+.label{font-weight:600}.loc{font:13px ui-monospace,Consolas,monospace;color:var(--muted);margin:10px 0 4px}.loc a{color:var(--accent);text-decoration:none}.loc a:hover{text-decoration:underline}
 pre{margin:0;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow-x:auto;font:13px/1.5 ui-monospace,Consolas,monospace}
 details{margin-top:8px}summary{cursor:pointer;color:var(--accent)}ul{margin:6px 0;padding-left:20px}.muted{color:var(--muted)}
 @media print{.filters{display:none}.card{break-inside:avoid}}
@@ -55,19 +55,33 @@ def _when(value) -> str:
     return text[:16].replace('T', ' ') + ' UTC' if len(text) >= 16 and text[10:11] == 'T' else text
 
 
-def _evidence(items) -> str:
+def _link(base, item):
+    if not base:
+        return None
+    from urllib.parse import quote
+    start, end = item['start_line'], item['end_line']
+    anchor = f'#L{start}' if start == end else f'#L{start}-L{end}'
+    return base + quote(item['path']) + ('' if item.get('location_kind') == 'extracted_document_lines' else anchor)
+
+
+def _evidence(items, base=None) -> str:
     out = []
     for item in items:
         start, end = item['start_line'], item['end_line']
         where = f'строка {start}' if start == end else f'строки {start}–{end}'
         if item.get('location_kind') == 'extracted_document_lines':
             where = where.replace('строк', 'абзац')
-        out.append(f'<div class="loc">{_e(item["path"])} · {where}</div><pre><code>{_e(item["quote"])}</code></pre>')
+        url = _link(base, item)
+        label = f'{_e(item["path"])} · {where}'
+        if url:
+            label = f'<a href="{_e(url)}" target="_blank" rel="noopener">{label} ↗</a>'
+        out.append(f'<div class="loc">{label}</div><pre><code>{_e(item["quote"])}</code></pre>')
     return ''.join(out)
 
 
 def render(report: dict) -> str:
     meta, timing = report.get('metadata', {}), report.get('timing', {})
+    base = meta.get('source_link_base') if isinstance(meta.get('source_link_base'), str) and meta['source_link_base'].startswith('https://') else None
     result_text, result_cls = RESULT.get(report['result'], (report['result'], 'warn'))
     extra = report.get('additional_findings', [])
     commit = (report.get('target') or {}).get('commit') or '—'
@@ -109,7 +123,7 @@ def render(report: dict) -> str:
             f'<span>{_e(titles.get(finding["requirement_id"], ""))}</span><span>· {_e(METHOD.get(finding.get("detected_by"), "LLM"))}</span></div>'
             f'<p><span class="label">Обоснование.</span> {_e(finding["explanation"])}</p>'
             f'<p><span class="label">Рекомендация.</span> {_e(finding["recommendation"])}</p>'
-            f'<details open><summary>Доказательства ({len(finding["evidence"])})</summary>{_evidence(finding["evidence"])}</details></div>')
+            f'<details open><summary>Доказательства ({len(finding["evidence"])})</summary>{_evidence(finding["evidence"], base)}</details></div>')
     parts.append('<h2>Прочие дефекты <span class="muted" style="font-weight:400;font-size:15px">— несоответствия технической спецификации, пайплайн не блокируют</span></h2>')
     if not extra:
         parts.append('<p class="muted">Не выявлено.</p>')
@@ -117,7 +131,7 @@ def render(report: dict) -> str:
         parts.append(f'<div class="card"><h3>{_e(item["title"])}</h3><div class="meta"><span class="pill warn">п. {_e(item.get("spec_reference"))}</span>'
                      f'<span class="pill sev-{_e(item.get("severity"))}">{_e(SEVERITY.get(item.get("severity"), item.get("severity")))}</span></div>'
                      f'<p>{_e(item["explanation"])}</p><p><span class="label">Рекомендация.</span> {_e(item["recommendation"])}</p>'
-                     f'<details><summary>Доказательства</summary>{_evidence(item["evidence"])}</details></div>')
+                     f'<details><summary>Доказательства</summary>{_evidence(item["evidence"], base)}</details></div>')
     for key, heading in (('errors', 'Ошибки'), ('limitations', 'Ограничения проверки')):
         if report.get(key):
             parts.append(f'<h2>{heading}</h2><ul>' + ''.join(f'<li>{_e(x)}</li>' for x in report[key]) + '</ul>')
