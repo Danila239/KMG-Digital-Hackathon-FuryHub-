@@ -101,7 +101,7 @@ class LLMClient:
                 data.pop('temperature', None)
             return json.dumps(data, ensure_ascii=False).encode('utf-8')
         payload = encode()
-        for attempt in range(4):
+        for attempt in range(7):
             self._check()
             self.usage['requests'] += 1
             request = urllib.request.Request(self.config.base_url + '/chat/completions', payload,
@@ -167,7 +167,8 @@ class LLMClient:
                     self.usage['retries'] += 1
                     continue
                 # Do not print response bodies, URLs with query strings, or headers.
-                if code in (429, 502, 503, 504) and attempt < 2 and 'дневной' not in hint:
+                # Shared/free models are often rate-limited: back off patiently within the time budget.
+                if code in (429, 502, 503, 504) and attempt < 5 and 'дневной' not in hint:
                     delay = self._retry_delay(exc.headers.get('Retry-After'), attempt)
                     self._backoff(delay)
                     self.usage['retries'] += 1
@@ -185,7 +186,7 @@ class LLMClient:
 
     @staticmethod
     def _retry_delay(value, attempt):
-        fallback = 2 ** (attempt + 1)
+        fallback = min(60, 5 * 2 ** attempt)  # 5, 10, 20, 40, 60 s
         if value:
             try:
                 return max(fallback, float(value))

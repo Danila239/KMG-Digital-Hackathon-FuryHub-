@@ -75,6 +75,15 @@ def _summary(report, output):
     extra = report.get('additional_findings', [])
     if extra:
         lines.append(f'Дополнительные замечания (не блокируют): {len(extra)}')
+    coverage = report.get('metadata', {}).get('coverage') or {}
+    requests = (report.get('usage') or {}).get('requests', 0)
+    if report.get('model'):
+        if coverage.get('llm_error'):
+            lines.append(f'LLM ({report["model"]}): НЕ ЗАВЕРШЁН — {coverage["llm_error"]}; итог по детерминированным правилам')
+        else:
+            lines.append(f'LLM ({report["model"]}): выполнен, запросов {requests}, токенов {(report.get("usage") or {}).get("total_tokens", 0)}')
+    else:
+        lines.append('LLM: не подключена — проверка только детерминированными правилами')
     for error in report['errors']:
         lines.append('Ошибка: ' + error)
     lines += [f'Отчёт: {output / "report.md"}', '=' * 72]
